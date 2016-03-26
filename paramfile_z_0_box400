@@ -1,0 +1,9 @@
+#---------------------------------------
+#--------- PARAMETERS FILE -------------
+#---------------------------------------
+#+++++++++++++++++++++++++++++++++++++++
+#Number of cells per axis is N
+#Total number of cells is N^3
+FILE_NAME = "/home/ngomez/simBoxes/Box400x512_z_0_NGRID_512_TSC.dens"
+OUTPUT = "./Box400/Pk_Box400x512_z_0_NGRID_512_TSC.dat"
+S_KF = 1.0
