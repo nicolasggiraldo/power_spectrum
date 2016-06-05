@@ -4,15 +4,15 @@
  * Reads the parameter file in which are the main parameters 
  * necessary to run the code.
  *
- * The information loaded are: 
+ * The information loaded are:
  * FILE_NAME:      File name path of the GADGET binary file.
  * OUTPUT:         Path of the output file.
- * DELTA_K:        Width of space sampled for the calculation of 
- *                 the power spectrum. The value is given in terms 
+ * DELTA_K:        Width of space sampled for the calculation of
+ *                 the power spectrum. The value is given in terms
  *                 of the fundamental frequency kF. The value
  *                 should be bigger or equal than 1.
  * 
- * The parameter file is read with the help of the library libconfig, 
+ * The parameter file is read with the help of the library libconfig,
  * for more information of the library use go to the manual:
  * http://www.hyperrealm.com/libconfig/libconfig_manual.html
  *
@@ -26,28 +26,57 @@
  *                  parameter file.
  */
 int read_parameters(char param_file_name[]){
-
-  config_t cfg;            /* Returns all parameters in this structure */
-  const char *str1, *str2; /* Going to be used to read strings variables */
   
-
-  /*Initialization */
-  config_init(&cfg);
+  FILE *cfg=NULL;  // Stream to the parameter (config) file
+  int len = 200;   // Len of the read parameter
+  char *buf =NULL; // buf variables to be used to read strings variables
+  char *buf1=NULL;
+  char *buf2=NULL; 
+  char *dumb=NULL;
   
-  /* Read the file. If there is an error, report it and exit. */
-  if(!config_read_file(&cfg, param_file_name)){
-    printf("%s:%d - %s\n",
-	   config_error_file(&cfg),
-	   config_error_line(&cfg),
-	   config_error_text(&cfg));
-    config_destroy(&cfg);
+  
+  if( (cfg=fopen(param_file_name,"r"))==NULL ){
+    printf("%s not found.\n", param_file_name);
     // Value -1 means there is an error loading the param file
     return -1;
   }
   
-  /* Get the NGRID value in one axis of the cell. */
-  if( config_lookup_float(&cfg, "S_KF", &(GV.S_KF) ) ){
-    // Checking if NGRID value is valid, that is, NGRID > 0
+  buf  = (char *) malloc( len*sizeof(char) );
+  buf1 = (char *) malloc( len*sizeof(char) );
+  buf2 = (char *) malloc( len*sizeof(char) );
+
+  /* Reading FILE_NAME parameter */  
+  do{dumb=fgets(buf, len, cfg);}while(dumb[0]=='#');
+  if( sscanf(buf,"%s%s",buf1,buf2) < 2 ){
+    printf("No 'FILE_NAME' setting in configuration file.\n");
+    return -2;
+  }
+  else{
+    GV.FILE_NAME = strdup(buf2);
+    printf("Reading from File: %s\n", GV.FILE_NAME);
+  }
+
+  /* Reading OUTPUT parameter */
+  //dumb=fgets(buf,len,cfg);
+  do{dumb=fgets(buf, len, cfg);}while(dumb[0]=='#');
+  if( sscanf(buf,"%s%s",buf1,buf2) < 2 ){
+    printf("No 'OUTPUT' setting in configuration file.\n");
+    return -2;
+  }
+  else{
+    GV.OUTPUT = strdup(buf2);
+    printf("Output File: %s\n", GV.OUTPUT);
+  }
+  
+  /* Reading S_KF parameter */
+  //dumb=fgets(buf,len,cfg);
+  do{dumb=fgets(buf, len, cfg);}while(dumb[0]=='#');
+  if( sscanf(buf,"%s%s",buf1,buf2) < 2 ){
+    printf("No 'S_KF' setting in configuration file.\n");
+    return -2;
+  }
+  else{
+    GV.S_KF=atof(buf2);
     if(GV.S_KF >= 1.0){
       printf("Binning width in terms of the fundamental frequency kF: %lf\n", GV.S_KF);
     }
@@ -56,53 +85,32 @@ int read_parameters(char param_file_name[]){
       return -2;
     }
   }
-  else{
-    printf("No 'S_KF' setting in configuration file.\n");
-    return -2;
-  }
+  
+  if(dumb==NULL){}
+  
+  fclose(cfg);
+  free(buf);
+  free(buf1);
+  free(buf2);
     
-  /* Get the configuration file name. */
-  if(config_lookup_string(&cfg, "FILE_NAME", &str1)){
-    GV.FILE_NAME = strdup(str1);
-    printf("Reading from File: %s\n", GV.FILE_NAME);
-  }
-  else{
-    printf("No 'FILE_NAME' setting in configuration file.\n");
-    return -2;
-  }
-    
-  /* Get the configuration output. */
-  if(config_lookup_string(&cfg, "OUTPUT", &str2)){
-    GV.OUTPUT = strdup(str2);
-    printf("Output File: %s\n", GV.OUTPUT);
-  }
-  else{
-    printf("No 'OUTPUT' setting in configuration file.\n");
-    return -2;
-  }
-  
-  
-  config_destroy(&cfg);
-  
-  
   return 0;
 }
 
 
 
-/*                                                                                                                       
- * Function:  readBinaryFile                                                                                      
- * --------------------                                                                                                  
+/*
+ * Function:  readBinaryFile
+ -------------------- 
  * Reads a binary file with the information of the cell and store 
  * the information in the data structure variable *part* it also 
  * returns the total number of particles.
- *                                                                                                                       
- *  There are no arguments in the routiene.                                                                              
- *                                                                                                                       
- *  returns: Integer value.                                                                                              
- *            0 --> There is no error.                                                                                   
+ *
+ *  There are no arguments in the routiene.
+ *                                                                               
+ *  returns: Integer value.
+ *            0 --> There is no error.
  *           -1 --> There is an error loading file
- *           -2 --> Structure cell could not be allocated.    
+ *           -2 --> Structure cell could not be allocated.
  */
 int readBinaryFile(){
   FILE *fdata;
@@ -189,48 +197,60 @@ int readBinaryFile(){
   return 0;
 }
 
+double pow2(double x){
+  return x*x;
+}
 
+double pow3(double x){
+  return x*x*x;
+}
 
-/*
- * Function:  C1_NGP
- * --------------------
- * This function evaluates the term C1(k) of Jing 2005, which is
- * the alias sum, this is made to correct the effect of the alias
- * in the measure of the power spectrum. The function C1(k) is 
- * defined for k<kN explicitly as:
- *  C1(k) = 
- *  1,                                                           NGP
- *  1-2/3\sin^2(frac{\pi k}{2 k_N}),                             CIC
- *  1-\sin^2(frac{\pi k}{2 k_N})+2/15\sin^4(frac{\pi k}{2 k_N}), TSC
+double pow4(double x){
+  return x*x*x*x;
+}
 
- * For the Daubechies schemes the effect of the C1 term is minimal, so
- * it is not necessary the correct. For this reason is taken as 1.
- *
- *  k : Magnitude of the wavenumber at which the power spectrum is
- *      measured.
- * 
- *  returns: The value of the C1 term for the value of k, according
- *           to the scheme used.
- */
-double C1_NGP(double k){
+//Sum square window function
+double Sum_W2_NGP(double k){
   return 1.0;
 }
 
-double C1_CIC(double k){
-  double sinfactor = sin(k * GV.H * 0.5);
-  return 1.0 - (0.66666666666667 * sinfactor * sinfactor);
+double Sum_W2_CIC(double k){
+  double sine = sin( (M_PI*0.5*k)/GV.KN );
+  return 1.0 - 0.666666666666667*pow2( sine );
 }
 
-double C1_TSC(double k){
+double Sum_W2_TSC(double k){
+  double sine = sin( (M_PI*0.5*k)/GV.KN );
+  return 1.0 - pow2( sine ) + 0.133333333333333*pow4( sine );
+}
+
+double Sum_W2_D20(double k){
+  return 1.0;
+}
+
+
+
+/*
+  double C1_NGP(double k){
+  return 1.0;
+  }
+  
+  double C1_CIC(double k){
+  double sinfactor = sin(k * GV.H * 0.5);
+  return 1.0 - (0.66666666666667 * sinfactor * sinfactor);
+  }
+  
+  double C1_TSC(double k){
   double sinfactor = sin(k * GV.H * 0.5);
   return 1.0 - (sinfactor *
-		sinfactor) + (0.13333333333333 * 
-			      sinfactor *
-			      sinfactor *
-			      sinfactor *
+  sinfactor) + (0.13333333333333 * 
+  sinfactor *
+  sinfactor *
+  sinfactor *
 			      sinfactor );
 }
 
 double C1_D20(double k){
   return 1.0;
 }
+*/

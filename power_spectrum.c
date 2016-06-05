@@ -17,21 +17,23 @@
 */
 
 int main(int argc, char *argv[]){
-  int i, j, k;        // Counter in the X, Y, and Z axis.
+  int i, j, k, l; // Counter in the X, Y, and Z axis.
   long int id_cell;
-  int n[3];                    // Number of grids in each dimension.
-  double kx, ky, kz;           // Wavenumber componentst
+  int n[3]; // Number of grids in each dimension.
+  double kx, ky, kz; // Wavenumber componentst
   int Nbins;
   double *denk2 = NULL;
   int *kn = NULL;
-  double Pk, kdist;
+  double Pk, PkError, kdist;
   size_t *order=NULL;
-  double *kMag=NULL;           /* Array with the magnitude of the 
-				  wavenumber vector */
-  double (*C1)(double) = NULL; /* Memory addres to the function for 
-				  correction of the Fourier mode for
-				  the effect of mass assignment scheme
-				  according to Montesano et al. 2012 */
+  double *kMag=NULL; /* Array with the magnitude of the 
+			wavenumber vector */
+  double *kpos; /* Array of positions values according 
+		   to FFTW k-position convention */ 
+  double (*W2_k)(double) = NULL; /* Memory addres to the function for 
+				    correction of the Fourier mode for
+				    the effect of mass assignment scheme
+				    according to Montesano et al. 2012 */
   FILE *fout = NULL;
 
 
@@ -94,20 +96,16 @@ int main(int argc, char *argv[]){
   //* DEFINING CORRECTION TERM FOR THE POWER SPECTRUM *//
   ///////////////////////////////////////////////////////
   if(      strcmp(GV.SCHEME, "NGP") == 0 ){
-    // NGP
-    C1 = C1_NGP;
+    W2_k = Sum_W2_NGP; // NGP
   }
   else if( strcmp(GV.SCHEME, "CIC") == 0 ){
-    // CIC
-    C1 = C1_CIC;
+    W2_k = Sum_W2_CIC; // CIC
   }
   else if( strcmp(GV.SCHEME, "TSC") == 0 ){
-    // TSC
-    C1 = C1_TSC;
+    W2_k = Sum_W2_TSC; // TSC
   }
   else if( strcmp(GV.SCHEME, "D20") == 0 ){
-    // D20
-    C1 = C1_D20;
+    W2_k = Sum_W2_D20; // D20
   }
   
   
@@ -120,7 +118,8 @@ int main(int argc, char *argv[]){
   n[X] = n[Y] = n[Z] = GV.NGRID;
   
   /* FFTW plan for a 3D Fourier transform */
-  forwardPlan = fftw_plan_dft(3, n, denConX, denConK,
+  forwardPlan = fftw_plan_dft(3, n, 
+			      denConX, denConK,
 			      FFTW_FORWARD, FFTW_ESTIMATE);
 
   /* Do forward FFT */
@@ -138,21 +137,43 @@ int main(int argc, char *argv[]){
     printf("***********************************\n\n");
     exit(0);
   }
+
+  /* Position array for storing in the densityContrast */
+  kpos = (double *) calloc(GV.NGRID, sizeof(double));
+  if(kpos == NULL){
+    printf("\n***********************************");
+    printf("***********************************\n");
+    printf("Error: kpos array could not be allocated.\n" );
+    printf("***********************************");
+    printf("***********************************\n\n");
+    exit(0);
+  }
+
+  /* Setting index and positions according to FFTW convention  */
+  /* REMEMBER kF is (2.0*PI)/L */
+  for( i=0; i<GV.NGRID; i++ )
+    kpos[i] = (i<GV.NGRID/2) ? GV.KF*i : GV.KF*(i-GV.NGRID);
+  
   
   /* REMEMBER kF is (2.0*PI)/L; */
   for(i=0; i<GV.NGRID; i++){
     // Momentum coordinate in the X-Axis
-    kx = (i<=GV.NGRID/2) ? GV.KF*i : GV.KF*(i-GV.NGRID);
+    //kx = (i<=GV.NGRID/2) ? GV.KF*i : GV.KF*(i-GV.NGRID);
+    kx = kpos[i];
     
     for(j=0; j<GV.NGRID; j++){
       // Momentum coordinate in the Y-Axis
-      ky = (j<=GV.NGRID/2) ? GV.KF*j : GV.KF*(j-GV.NGRID);
+      //ky = (j<=GV.NGRID/2) ? GV.KF*j : GV.KF*(j-GV.NGRID);
+      ky = kpos[j];
       
       for(k=0; k<GV.NGRID; k++){
 	// Momentum coordinate in the Z-Axis
-	kz = (k<=GV.NGRID/2) ? GV.KF*k : GV.KF*(k-GV.NGRID);
+	//kz = (k<=GV.NGRID/2) ? GV.KF*k : GV.KF*(k-GV.NGRID);
+	kz = kpos[k];
+
 	// Distance from kX=0, kY=0, kZ=0.
 	kMag[INDEX(i,j,k)] = VECTORMAG(kx,ky,kz);
+
       }// for k
     }// for j
   }// for i 
@@ -218,13 +239,20 @@ int main(int argc, char *argv[]){
   
   /* Lineal binning  */
   id_cell = 0L;
-  for(j=0; j<Nbins; j++){
-    while( kMag[ order[id_cell] ] <= (GV.DELTA_K * (j+1)) ){
-      denk2[j] += COMPLEXMAG(denConK,order[id_cell]);
-      kn[j] += 1;
+  for(l=0; l<Nbins; l++){
+    while( kMag[ order[id_cell] ] <= (GV.DELTA_K * (l+1)) ){
+      /* Aliasing correction */
+      k = order[id_cell]%GV.NGRID;
+      j = ((order[id_cell]-k)/GV.NGRID)%GV.NGRID;
+      i = (((order[id_cell]-k)/GV.NGRID)-j)/GV.NGRID;
+
+      denk2[l] += COMPLEXMAG(denConK,order[id_cell])/( W2_k(kpos[i]) *
+						       W2_k(kpos[j]) *
+						       W2_k(kpos[k]) );
+      kn[l] += 1;
       id_cell++;
     }
-  }//for j
+  }//for l
 
   
   /* Saving data in the outfile */
@@ -264,7 +292,7 @@ int main(int argc, char *argv[]){
   fprintf(fout,"\n");
 
   /* Saving power spectrum values */
-  fprintf(fout,"#%19s %20s\n","k", "Pk(k)");
+  fprintf(fout,"#%19s %20s %20s\n","k", "Pk(k)", "Pk_Error(k)");
 
   for(j=0; j<Nbins; j++){
     
@@ -281,19 +309,23 @@ int main(int argc, char *argv[]){
       /* Correction of the Fourier mode for the effect 
 	 of the Mass Assignment Scheme according to 
 	 Montesano et al. 2010 */
-      Pk /= C1(kdist);
+      //Pk /= C1(kdist);
       
       /* substracting shot noise term */
       Pk -= GV.SHOT_NOISE;
+
+      /* Error of the estimation */
+      PkError = (Pk*(GV.DELTA_K/kdist))/sqrt(2.0*M_PI);
       
     }else{
 
       /* If counts are zero, set Pk to zero */
       Pk = 0.0;
+      PkError = 0.0;
       
     }
 
-    fprintf(fout,"%20lf %20lf\n",kdist, Pk);
+    fprintf(fout,"%20lf %20e %20e\n",kdist, Pk, PkError);
     
   }
   
