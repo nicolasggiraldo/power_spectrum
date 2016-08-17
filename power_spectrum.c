@@ -124,8 +124,10 @@ int main(int argc, char *argv[]){
 
   /* Do forward FFT */
   fftw_execute(forwardPlan);
+  fftw_free(denConX);
   printf("\n-----------------------------------------------\n");
   printf("Fourier Transform succes.\n");
+  fflush(stdout);
   
   /* Magnitud of the k vector */
   kMag = (double *) calloc(GV.NGRID3, sizeof(double));
@@ -335,7 +337,6 @@ int main(int argc, char *argv[]){
   //* FREE MEMORY *//
   ///////////////////
   free(kMag);  
-  fftw_free(denConX);
   fftw_free(denConK);
   fftw_destroy_plan(forwardPlan);
   
